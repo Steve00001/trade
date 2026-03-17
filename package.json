@@ -1,0 +1,8 @@
+{
+  "name": "trading-journal",
+  "version": "1.0.0",
+  "description": "Journal de trading personnel",
+  "dependencies": {
+    "@neondatabase/serverless": "^0.9.0"
+  }
+}
