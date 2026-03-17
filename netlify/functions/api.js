@@ -1,6 +1,6 @@
 const { neon } = require('@neondatabase/serverless');
 
-const sql = neon(process.env.DATABASE_URL);
+const sql = neon(process.env.NETLIFY_DATABASE_URL);
 
 // ===== INIT DB — crée les tables si elles n'existent pas =====
 async function initDB() {
