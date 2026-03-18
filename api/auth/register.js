@@ -1,7 +1,7 @@
 const { neon } = require('@neondatabase/serverless');
 const crypto = require('crypto');
 
-const sql = neon(process.env.DATABASE_URL || process.env.DATABASE_URL_UNPOOLED );
+const sql = neon(process.env.DATABASE_URL || process.env.POSTGRES_URL);
 const JWT_SECRET = process.env.JWT_SECRET || 'trading-journal-secret-2024';
 
 function hashPassword(pwd) {
@@ -23,10 +23,23 @@ module.exports = async (req, res) => {
   try {
     await sql`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, name TEXT DEFAULT '', created_at TIMESTAMP DEFAULT NOW())`;
     await sql`CREATE TABLE IF NOT EXISTS settings (user_id TEXT PRIMARY KEY, start_capital FLOAT DEFAULT 0, assets JSONB DEFAULT '[]')`;
+    await sql`CREATE TABLE IF NOT EXISTS invites (code TEXT PRIMARY KEY, created_by TEXT NOT NULL, name TEXT NOT NULL, used_by TEXT DEFAULT NULL, created_at TIMESTAMP DEFAULT NOW(), used_at TIMESTAMP DEFAULT NULL)`;
 
-    const { email, password, name } = req.body || {};
+    const { email, password, name, invite_code } = req.body || {};
     if (!email || !password) return res.status(400).json({ error: 'Email et mot de passe requis.' });
     if (password.length < 6) return res.status(400).json({ error: 'Mot de passe trop court (6 min).' });
+    if (!invite_code) return res.status(403).json({ error: "Code d'invitation requis." });
+
+    // Check invite code in database
+    const invites = await sql`
+      SELECT * FROM invites
+      WHERE code = ${invite_code.toUpperCase()}
+      AND used_by IS NULL
+    `;
+
+    if (!invites.length) {
+      return res.status(403).json({ error: "Code d'invitation invalide ou déjà utilisé." });
+    }
 
     const existing = await sql`SELECT id FROM users WHERE email = ${email.toLowerCase()}`;
     if (existing.length > 0) return res.status(400).json({ error: 'Cet email est déjà utilisé.' });
@@ -35,8 +48,15 @@ module.exports = async (req, res) => {
     await sql`INSERT INTO users (id, email, password_hash, name) VALUES (${userId}, ${email.toLowerCase()}, ${hashPassword(password)}, ${name || ''})`;
     await sql`INSERT INTO settings (user_id) VALUES (${userId}) ON CONFLICT DO NOTHING`;
 
+    // Mark invite as used
+    await sql`
+      UPDATE invites SET used_by = ${userId}, used_at = NOW()
+      WHERE code = ${invite_code.toUpperCase()}
+    `;
+
     const token = createToken(userId, email);
     return res.status(200).json({ token, user: { id: userId, email, name: name || '' } });
+
   } catch(err) {
     console.error('register error:', err);
     return res.status(500).json({ error: err.message });
