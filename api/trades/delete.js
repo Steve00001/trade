@@ -1,11 +1,33 @@
-const { sql, initDB, getUserId, cors } = require('../../_utils');
+const { neon } = require('@neondatabase/serverless');
+const crypto = require('crypto');
+
+const sql = neon(process.env.DATABASE_URL || process.env.POSTGRES_URL);
+const JWT_SECRET = process.env.JWT_SECRET || 'trading-journal-secret-2024';
+
+function verifyToken(token) {
+  try {
+    const [header, payload, sig] = token.split('.');
+    const expected = crypto.createHmac('sha256', JWT_SECRET).update(header + '.' + payload).digest('base64url');
+    if (sig !== expected) return null;
+    return JSON.parse(Buffer.from(payload, 'base64url').toString());
+  } catch(e) { return null; }
+}
+function getUserId(req) {
+  try {
+    const auth = req.headers['authorization'] || '';
+    if (!auth.startsWith('Bearer ')) return null;
+    const payload = verifyToken(auth.split(' ')[1]);
+    return payload ? payload.sub : null;
+  } catch(e) { return null; }
+}
 
 module.exports = async (req, res) => {
-  cors(res);
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
-    await initDB();
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: 'Non authentifié.' });
 
@@ -14,11 +36,9 @@ module.exports = async (req, res) => {
       await sql`DELETE FROM trades WHERE id=${id} AND user_id=${userId}`;
       return res.status(200).json({ ok: true });
     }
-
     return res.status(405).json({ error: 'Method not allowed' });
-
   } catch(err) {
-    console.error(err);
+    console.error('delete error:', err);
     return res.status(500).json({ error: err.message });
   }
 };
