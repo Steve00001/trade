@@ -4,24 +4,14 @@ const crypto = require('crypto');
 const sql = neon(process.env.DATABASE_URL || process.env.POSTGRES_URL);
 const JWT_SECRET = process.env.JWT_SECRET || 'trading-journal-secret-2024';
 
-function verifyToken(token) {
-  try {
-    const [header, payload, sig] = token.split('.');
-    const expected = crypto.createHmac('sha256', JWT_SECRET).update(header + '.' + payload).digest('base64url');
-    if (sig !== expected) return null;
-    const data = JSON.parse(Buffer.from(payload, 'base64url').toString());
-    if (data.exp && Date.now() > data.exp) return null;
-    return data;
-  } catch(e) { return null; }
+function hashPassword(pwd) {
+  return crypto.createHmac('sha256', JWT_SECRET).update(pwd).digest('hex');
 }
-
-function getUserId(req) {
-  try {
-    const auth = req.headers['authorization'] || '';
-    if (!auth.startsWith('Bearer ')) return null;
-    const payload = verifyToken(auth.split(' ')[1]);
-    return payload ? payload.sub : null;
-  } catch(e) { return null; }
+function createToken(userId, email) {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ sub: userId, email, iat: Date.now(), exp: Date.now() + 30 * 24 * 60 * 60 * 1000 })).toString('base64url');
+  const sig = crypto.createHmac('sha256', JWT_SECRET).update(header + '.' + payload).digest('base64url');
+  return header + '.' + payload + '.' + sig;
 }
 
 module.exports = async (req, res) => {
@@ -31,36 +21,49 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
-    const userId = getUserId(req);
-    if (!userId) return res.status(401).json({ error: 'Non authentifié.' });
+    await sql`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, name TEXT DEFAULT '', created_at TIMESTAMP DEFAULT NOW())`;
+    await sql`CREATE TABLE IF NOT EXISTS settings (user_id TEXT PRIMARY KEY, start_capital FLOAT DEFAULT 0, assets JSONB DEFAULT '[]')`;
+    await sql`CREATE TABLE IF NOT EXISTS invites (code TEXT PRIMARY KEY, created_by TEXT NOT NULL, name TEXT NOT NULL, used_by TEXT DEFAULT NULL, created_at TIMESTAMP DEFAULT NOW(), used_at TIMESTAMP DEFAULT NULL)`;
 
-    // Create invites table if needed
-    await sql`
-      CREATE TABLE IF NOT EXISTS invites (
-        code TEXT PRIMARY KEY,
-        created_by TEXT NOT NULL,
-        name TEXT NOT NULL,
-        used_by TEXT DEFAULT NULL,
-        created_at TIMESTAMP DEFAULT NOW(),
-        used_at TIMESTAMP DEFAULT NULL
-      )
+    const { email, password, name, invite_code } = req.body || {};
+    if (!email || !password) return res.status(400).json({ error: 'Email et mot de passe requis.' });
+    if (password.length < 6) return res.status(400).json({ error: 'Mot de passe trop court (6 min).' });
+    if (!invite_code) return res.status(403).json({ error: "Code d'invitation requis." });
+
+    // Check invite code in database
+    const invites = await sql`
+      SELECT * FROM invites
+      WHERE code = ${invite_code.toUpperCase()}
+      AND used_by IS NULL
     `;
 
-    const { name } = req.body || {};
-    if (!name) return res.status(400).json({ error: 'Nom requis.' });
+    if (!invites.length) {
+      // Check if code exists but was already used
+      const usedInvite = await sql\`SELECT * FROM invites WHERE code = \${invite_code.toUpperCase()}\`;
+      if (usedInvite.length > 0) {
+        return res.status(403).json({ error: "Ce code a déjà été utilisé." });
+      }
+      return res.status(403).json({ error: "Code d'invitation invalide." });
+    }
 
-    // Generate unique 8-char code
-    const code = crypto.randomBytes(4).toString('hex').toUpperCase();
+    const existing = await sql`SELECT id FROM users WHERE email = ${email.toLowerCase()}`;
+    if (existing.length > 0) return res.status(400).json({ error: 'Cet email est déjà utilisé.' });
 
+    const userId = crypto.randomUUID();
+    await sql`INSERT INTO users (id, email, password_hash, name) VALUES (${userId}, ${email.toLowerCase()}, ${hashPassword(password)}, ${name || ''})`;
+    await sql`INSERT INTO settings (user_id) VALUES (${userId}) ON CONFLICT DO NOTHING`;
+
+    // Mark invite as used
     await sql`
-      INSERT INTO invites (code, created_by, name)
-      VALUES (${code}, ${userId}, ${name})
+      UPDATE invites SET used_by = ${userId}, used_at = NOW()
+      WHERE code = ${invite_code.toUpperCase()}
     `;
 
-    return res.status(200).json({ code, name });
+    const token = createToken(userId, email);
+    return res.status(200).json({ token, user: { id: userId, email, name: name || '' } });
 
   } catch(err) {
-    console.error('generate invite error:', err);
+    console.error('register error:', err);
     return res.status(500).json({ error: err.message });
   }
 };
