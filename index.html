@@ -966,7 +966,7 @@ async function saveTrade_API(trade) {
 async function deleteTrade_API(id) {
   if (!apiAvailable) return;
   try {
-    await fetch(API + '/trades/' + id, { method: 'DELETE', headers: getAuthHeaders() });
+    await fetch(API + '/trades/delete?id=' + id, { method: 'DELETE', headers: getAuthHeaders() });
   } catch(e) { console.warn('API delete failed', e); }
 }
 
