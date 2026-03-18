@@ -1,0 +1,5 @@
+{
+  "rewrites": [
+    { "source": "/api/trades", "destination": "/api/trades/index" }
+  ]
+}
