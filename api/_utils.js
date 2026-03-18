@@ -1,7 +1,7 @@
 const { neon } = require('@neondatabase/serverless');
 const crypto = require('crypto');
 
-const sql = neon(process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL);
+const sql = neon(process.env.DATABASE_URL || process.env.DATABASE_URL_UNPOOLED);
 const JWT_SECRET = process.env.JWT_SECRET || 'trading-journal-secret-2024';
 
 async function initDB() {
