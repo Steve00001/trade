@@ -1,7 +1,7 @@
 const { neon } = require('@neondatabase/serverless');
 const crypto = require('crypto');
 
-const sql = neon(process.env.DATABASE_URL || process.env.POSTGRES_URL);
+const sql = neon(process.env.DATABASE_URL || process.env.DATABASE_URL_UNPOOLED );
 const JWT_SECRET = process.env.JWT_SECRET || 'trading-journal-secret-2024';
 
 function hashPassword(pwd) {
@@ -9,7 +9,7 @@ function hashPassword(pwd) {
 }
 function createToken(userId, email) {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-  const payload = Buffer.from(JSON.stringify({ sub: userId, email, iat: Date.now() })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ sub: userId, email, iat: Date.now(), exp: Date.now() + 30 * 24 * 60 * 60 * 1000 })).toString('base64url');
   const sig = crypto.createHmac('sha256', JWT_SECRET).update(header + '.' + payload).digest('base64url');
   return header + '.' + payload + '.' + sig;
 }
