@@ -1,5 +1,17 @@
-{
-  "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/:path*" }
-  ]
-}
+	
+rewrites	
+0	
+source	"/api/auth/register"
+destination	"/api/auth/register"
+1	
+source	"/api/auth/login"
+destination	"/api/auth/login"
+2	
+source	"/api/trades"
+destination	"/api/trades/index"
+3	
+source	"/api/trades/delete"
+destination	"/api/trades/delete"
+4	
+source	"/api/settings"
+destination	"/api/settings"
