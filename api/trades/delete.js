@@ -9,7 +9,9 @@ function verifyToken(token) {
     const [header, payload, sig] = token.split('.');
     const expected = crypto.createHmac('sha256', JWT_SECRET).update(header + '.' + payload).digest('base64url');
     if (sig !== expected) return null;
-    return JSON.parse(Buffer.from(payload, 'base64url').toString());
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString());
+    if (data.exp && Date.now() > data.exp) return null; // expired
+    return data;
   } catch(e) { return null; }
 }
 function getUserId(req) {
